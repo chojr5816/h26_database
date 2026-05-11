@@ -1,0 +1,879 @@
+5/11 [프로시저] 실습 예제
+
+마당 서점 테이블을 기준으로 프로시저를 작성하시오. 
+테이블 주요 컬럼 
+Book: bokid, bookname, publisher, price 
+Customer: custid, name, address, phone 
+Orders: orderid, custid, bookid, saleprice, orderdate
+
+[기본 CRUD (문제 1~5) ]
+1. bookid를 입력받아 해당 도서의 bookname, publisher, price를 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetBookInfo(
+    v_bookid IN Book.bookid%TYPE
+)
+IS
+    v_bookname Book.bookname%TYPE;
+    v_publisher Book.publisher%TYPE;
+    v_price     Book.price%TYPE;
+BEGIN
+    SELECT bookname, publisher, price
+    INTO v_bookname, v_publisher, v_price
+    FROM Book
+    WHERE bookid = v_bookid;
+
+    DBMS_OUTPUT.PUT_LINE('도서명: ' || v_bookname || ', 출판사: ' || v_publisher || ', 가격: ' || v_price);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('해당 도서 번호가 존재하지 않습니다.');
+END;
+/
+
+2. 새로운 고객 정보(custid, name, address, phone)를 입력받아 Customer 테이블에 삽입하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE InsertCustomer(
+    v_custid  IN Customer.custid%TYPE,
+    v_name    IN Customer.name%TYPE,
+    v_address IN Customer.address%TYPE,
+    v_phone   IN Customer.phone%TYPE
+)
+IS
+BEGIN
+    INSERT INTO Customer(custid, name, address, phone)
+    VALUES (v_custid, v_name, v_address, v_phone);
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('신규 고객 등록 완료');
+END;
+/
+
+3. bookid와 새로운 price를 입력받아 해당 도서의 가격을 수정하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE UpdateBookPrice(
+    v_bookid IN Book.bookid%TYPE,
+    v_new_price IN Book.price%TYPE
+)
+IS
+BEGIN
+    UPDATE Book
+    SET price = v_new_price
+    WHERE bookid = v_bookid;
+    
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('도서 가격 수정 완료');
+END;
+/
+
+4. custid를 입력받아 해당 고객의 주문 내역을 Orders 테이블에서 모두 삭제한 후, Customer 테이블에서도 해당 고객을 삭제하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE DeleteCustomer(
+    v_custid IN Customer.custid%TYPE
+)
+IS
+BEGIN
+    -- 외래키 관계가 있는 주문 내역을 먼저 삭제 [cite: 10]
+    DELETE FROM Orders WHERE custid = v_custid;
+    
+    -- 고객 정보 삭제 [cite: 10]
+    DELETE FROM Customer WHERE custid = v_custid;
+    
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('고객 및 관련 주문 데이터 삭제 완료');
+END;
+/
+ 
+5. orderid를 입력받아 해당 주문의 고객 이름, 도서명, 주문금액, 주문날짜를 출력하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetOrderDetail(
+    v_orderid IN Orders.orderid%TYPE
+)
+IS
+    v_name      Customer.name%TYPE;
+    v_bookname  Book.bookname%TYPE;
+    v_saleprice Orders.saleprice%TYPE;
+    v_orderdate Orders.orderdate%TYPE;
+BEGIN
+    SELECT c.name, b.bookname, o.saleprice, o.orderdate
+    INTO v_name, v_bookname, v_saleprice, v_orderdate
+    FROM Orders o
+    JOIN Customer c ON o.custid = c.custid
+    JOIN Book b ON o.bookid = b.bookid
+    WHERE o.orderid = v_orderid;
+
+    DBMS_OUTPUT.PUT_LINE('고객명: ' || v_name || ' | 도서명: ' || v_bookname || 
+                         ' | 금액: ' || v_saleprice || ' | 날짜: ' || v_orderdate);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('해당 주문 내역이 없습니다.');
+END;
+/
+
+[ 조건 조회 (문제 6~10) ]
+6. 출판사 이름을 입력받아 해당 출판사의 도서 목록(bookid, bookname, price)을 모두 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetBooksByPublisher(v_publisher IN Book.publisher%TYPE)
+IS
+    CURSOR book_cursor IS
+        SELECT bookid, bookname, price FROM Book WHERE publisher = v_publisher;
+BEGIN
+    FOR b IN book_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('ID: ' || b.bookid || ' | 도서명: ' || b.bookname || ' | 가격: ' || b.price);
+    END LOOP;
+END;
+/
+
+7. custid를 입력받아 해당 고객의 전체 주문 내역(도서명, 주문금액, 주문날짜)을 주문날짜오름차순으로 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetCustomerOrders(v_custid IN Customer.custid%TYPE)
+IS
+    CURSOR order_cursor IS
+        SELECT b.bookname, o.saleprice, o.orderdate
+        FROM Orders o JOIN Book b ON o.bookid = b.bookid
+        WHERE o.custid = v_custid
+        ORDER BY o.orderdate ASC;
+BEGIN
+    FOR r IN order_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('도서명: ' || r.bookname || ' | 금액: ' || r.saleprice || ' | 날짜: ' || r.orderdate);
+    END LOOP;
+END;
+/
+
+8. 시작 날짜와 종료 날짜를 입력받아 해당 기간 내 주문된 모든 주문 정보(고객명, 도서명, 주문금액, 주문날짜)를 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetOrdersByPeriod(v_start DATE, v_end DATE)
+IS
+    CURSOR period_cursor IS
+        SELECT c.name, b.bookname, o.saleprice, o.orderdate
+        FROM Orders o 
+        JOIN Customer c ON o.custid = c.custid
+        JOIN Book b ON o.bookid = b.bookid
+        WHERE o.orderdate BETWEEN v_start AND v_end;
+BEGIN
+    FOR r IN period_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('고객: ' || r.name || ' | 도서: ' || r.bookname || ' | 날짜: ' || r.orderdate);
+    END LOOP;
+END;
+/
+
+9. 도서 이름을 입력받아 해당 도서를 주문한 고객의 이름과 주문금액을 출력하는 프로시저를작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetCustomersByBook(v_bookname IN Book.bookname%TYPE)
+IS
+    CURSOR cust_cursor IS
+        SELECT c.name, o.saleprice
+        FROM Orders o
+        JOIN Customer c ON o.custid = c.custid
+        JOIN Book b ON o.bookid = b.bookid
+        WHERE b.bookname = v_bookname;
+BEGIN
+    FOR r IN cust_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('고객명: ' || r.name || ' | 주문금액: ' || r.saleprice);
+    END LOOP;
+END;
+/
+
+10. 특정 주문금액 이상의 주문을 한 고객의 custid, name, 주문 건수를 출력하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetHighValueOrders(v_min_price IN NUMBER)
+IS
+    CURSOR result_cursor IS
+        SELECT c.custid, c.name, COUNT(o.orderid) as cnt
+        FROM Customer c
+        JOIN Orders o ON c.custid = o.custid
+        WHERE o.saleprice >= v_min_price
+        GROUP BY c.custid, c.name;
+BEGIN
+    FOR r IN result_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('ID: ' || r.custid || ' | 이름: ' || r.name || ' | 건수: ' || r.cnt);
+    END LOOP;
+END;
+/
+
+[ 계산 및 통계 (문제 11~13)]
+11. custid를 입력받아 해당 고객의 총 주문금액 합계를 OUT 매개변수로 반환하고 화면에도출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetTotalAmount(
+    v_custid IN Customer.custid%TYPE,
+    v_total OUT NUMBER
+)
+IS
+BEGIN
+    SELECT SUM(saleprice) INTO v_total FROM Orders WHERE custid = v_custid;
+    DBMS_OUTPUT.PUT_LINE('고객 ID ' || v_custid || '의 총 주문금액: ' || v_total);
+END;
+/
+
+12. 출판사 이름을 입력받아 해당 출판사 도서들의 평균 주문금액, 최고 주문금액, 최저 주문금액을 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetPublisherStats(v_publisher IN Book.publisher%TYPE)
+IS
+    v_avg NUMBER; v_max NUMBER; v_min NUMBER;
+BEGIN
+    SELECT AVG(o.saleprice), MAX(o.saleprice), MIN(o.saleprice)
+    INTO v_avg, v_max, v_min
+    FROM Orders o JOIN Book b ON o.bookid = b.bookid
+    WHERE b.publisher = v_publisher;
+    
+    DBMS_OUTPUT.PUT_LINE(v_publisher || ' - 평균: ' || v_avg || ' | 최고: ' || v_max || ' | 최저: ' || v_min);
+END;
+/
+
+13. 전체 도서 중 주문 횟수가 가장 많은 도서의 이름과 주문 횟수를 OUT 매개변수로 반환하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetMostOrderedBook(
+    v_bookname OUT Book.bookname%TYPE,
+    v_count OUT NUMBER
+)
+IS
+BEGIN
+    SELECT bookname, cnt INTO v_bookname, v_count
+    FROM (SELECT b.bookname, COUNT(*) as cnt 
+          FROM Orders o JOIN Book b ON o.bookid = b.bookid
+          GROUP BY b.bookname ORDER BY cnt DESC)
+    WHERE ROWNUM = 1;
+END;
+/
+
+[ 예외 처리 및 응용 (문제 14~15) ]
+
+14. 주문 삽입 시 입력한 saleprice가 해당 도서의 price보다 크면 오류 메시지를 출력하고삽입을 중단하며, 정상이면 Orders 테이블에 삽입하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE SafeInsertOrder(
+    v_orderid IN Orders.orderid%TYPE,
+    v_custid  IN Orders.custid%TYPE,
+    v_bookid  IN Orders.bookid%TYPE,
+    v_saleprice IN Orders.saleprice%TYPE
+)
+IS
+    v_price NUMBER;
+BEGIN
+    SELECT price INTO v_price FROM Book WHERE bookid = v_bookid;
+    
+    IF v_saleprice > v_price THEN
+        RAISE_APPLICATION_ERROR(-20001, '판매가격이 정가보다 클 수 없습니다.');
+    ELSE
+        INSERT INTO Orders(orderid, custid, bookid, saleprice, orderdate)
+        VALUES (v_orderid, v_custid, v_bookid, v_saleprice, SYSDATE);
+        COMMIT; [cite: 35]
+    END IF;
+END;
+/
+
+15. custid를 입력받아 해당 고객의 총 주문금액이 30,000원 이상이면 'VIP 고객', 10,000원 이상이면 '일반 고객', 그 미만이면 '신규 고객'으로 등급을 분류하여 출력하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetCustomerGrade(v_custid IN Customer.custid%TYPE)
+IS
+    v_total NUMBER;
+    v_grade VARCHAR2(20);
+BEGIN
+    SELECT SUM(saleprice) INTO v_total FROM Orders WHERE custid = v_custid;
+    
+    IF v_total >= 30000 THEN v_grade := 'VIP 고객';
+    ELSIF v_total >= 10000 THEN v_grade := '일반 고객';
+    ELSE v_grade := '신규 고객';
+    END IF;
+    
+    DBMS_OUTPUT.PUT_LINE('고객 등급: ' || v_grade || ' (총액: ' || NVL(v_total, 0) || ')');
+END;
+/
+
+학생수강 테이블
+학생(__학번__, 이름, 전공, 학년)
+수강(__과목코드__, __학번__, 수강학기, 성적)
+과목(__과목코드__, 과목이름, 강의실, 요일, 담당교수)
+
+[기본 CRUD]
+1. 학번을 입력받아 해당 학생의 이름, 전공, 학년을 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetStudentInfo(v_학번 IN 학생.학번%TYPE)
+IS
+    v_이름 학생.이름%TYPE; v_전공 학생.전공%TYPE; v_학년 학생.학년%TYPE;
+BEGIN
+    SELECT 이름, 전공, 학년 INTO v_이름, v_전공, v_학년 FROM 학생 WHERE 학번 = v_학번;
+    DBMS_OUTPUT.PUT_LINE('이름: ' || v_이름 || ', 전공: ' || v_전공 || ', 학년: ' || v_학년);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN DBMS_OUTPUT.PUT_LINE('해당 학생이 없습니다.'); 
+END;
+/
+
+2. 새로운 학생 정보(학번, 이름, 전공, 학년)를 입력받아 학생 테이블에 삽입하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE InsertStudent(
+    v_학번 IN 학생.학번%TYPE, v_이름 IN 학생.이름%TYPE,
+    v_전공 IN 학생.전공%TYPE, v_학년 IN 학생.학년%TYPE)
+IS
+BEGIN
+    INSERT INTO 학생(학번, 이름, 전공, 학년) VALUES (v_학번, v_이름, v_전공, v_학년);
+    COMMIT;
+END;
+/
+
+3. 학번과 새로운 학년을 입력받아 해당 학생의 학년 정보를 수정하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE UpdateStudentYear(v_학번 IN 학생.학번%TYPE, v_새학년 IN 학생.학년%TYPE)
+IS
+BEGIN
+    UPDATE 학생 SET 학년 = v_새학년 WHERE 학번 = v_학번;
+    COMMIT; 
+END;
+/
+
+4. 학번을 입력받아 해당 학생의 수강 내역을 모두 삭제한 후 학생 정보도 삭제하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE DeleteStudent(v_학번 IN 학생.학번%TYPE)
+IS
+BEGIN
+    DELETE FROM 수강 WHERE 학번 = v_학번;
+    DELETE FROM 학생 WHERE 학번 = v_학번;
+    COMMIT;
+END;
+/
+
+5. 과목코드를 입력받아 해당 과목의 과목이름, 강의실, 요일, 담당교수를 출력하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetSubjectInfo(v_과목코드 IN 과목.과목코드%TYPE)
+IS
+    v_row 과목%ROWTYPE;
+BEGIN
+    SELECT * INTO v_row FROM 과목 WHERE 과목코드 = v_과목코드;
+    DBMS_OUTPUT.PUT_LINE('과목명: ' || v_row.과목이름 || ', 교수: ' || v_row.담당교수);
+END;
+/
+
+[조건 조회]
+6. 전공을 입력받아 해당 전공 학생들의 학번과 이름 전체를 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetStudentsByDept(v_전공 IN 학생.전공%TYPE)
+IS
+    CURSOR s_cursor IS SELECT 학번, 이름 FROM 학생 WHERE 전공 = v_전공;
+BEGIN
+    FOR r IN s_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('학번: ' || r.학번 || ', 이름: ' || r.이름);
+    END LOOP;
+END;
+/
+
+7. 학번을 입력받아 해당 학생이 수강한 과목명, 수강 학기, 성적을 모두 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetStudentClasses(v_학번 IN 학생.학번%TYPE)
+IS
+    CURSOR c_cursor IS 
+        SELECT k.과목이름, s.수강학기, s.성적 
+        FROM 수강 s JOIN 과목 k ON s.과목코드 = k.과목코드
+        WHERE s.학번 = v_학번;
+BEGIN
+    FOR r IN c_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('과목: ' || r.과목이름 || ', 성적: ' || r.성적);
+    END LOOP;
+END;
+/
+
+8. 담당 교수 이름을 입력받아 해당 교수가 강의하는 과목을 수강한 학생들의 이름과 성적을 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetStudentsByProfessor(v_교수 IN 과목.담당교수%TYPE)
+IS
+    CURSOR p_cursor IS
+        SELECT h.이름, s.성적
+        FROM 과목 k JOIN 수강 s ON k.과목코드 = s.과목코드 JOIN 학생 h ON s.학번 = h.학번
+        WHERE k.담당교수 = v_교수;
+BEGIN
+    FOR r IN p_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('학생명: ' || r.이름 || ', 성적: ' || r.성적);
+    END LOOP;
+END;
+/
+
+9. 수강 학기를 입력받아 해당 학기에 수강 인원이 가장 많은 과목 이름과 인원수를 출력하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetPopularSubject(v_학기 IN 수강.수강학기%TYPE)
+IS
+    v_이름 과목.과목이름%TYPE; v_인원 NUMBER;
+BEGIN
+    SELECT 과목이름, 인원 INTO v_이름, v_인원
+    FROM (SELECT k.과목이름, COUNT(*) as 인원
+          FROM 수강 s JOIN 과목 k ON s.과목코드 = k.과목코드
+          WHERE s.수강학기 = v_학기 GROUP BY k.과목이름 ORDER BY 인원 DESC)
+    WHERE ROWNUM = 1;
+    DBMS_OUTPUT.PUT_LINE('과목: ' || v_이름 || ', 인원: ' || v_인원);
+END;
+/
+
+10. 특정 요일을 입력받아 그 요일에 강의가 있는 과목 목록과 강의실을 출력하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetSubjectsByDay(v_요일 IN 과목.요일%TYPE)
+IS
+    CURSOR d_cursor IS SELECT 과목이름, 강의실 FROM 과목 WHERE 요일 = v_요일;
+BEGIN
+    FOR r IN d_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('과목: ' || r.과목이름 || ', 강의실: ' || r.강의실);
+    END LOOP;
+END;
+/
+
+[계산 및 통계]
+11. 학번을 입력받아 해당 학생의 전체 평균 성적을 OUT 매개변수로 반환하는 프로시저를
+작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetAvgGrade(v_학번 IN 학생.학번%TYPE, v_avg OUT NUMBER)
+IS
+BEGIN
+    SELECT AVG(성적) INTO v_avg FROM 수강 WHERE 학번 = v_학번;
+END;
+/
+
+12. 과목 코드를 입력받아 해당 과목의 수강생 평균 성적과 최고 성적, 최저 성적을 출력하는
+프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE GetSubjectStats(v_과목코드 IN 과목.과목코드%TYPE)
+IS
+    v_avg NUMBER; v_max NUMBER; v_min NUMBER;
+BEGIN
+    SELECT AVG(성적), MAX(성적), MIN(성적) INTO v_avg, v_max, v_min 
+    FROM 수강 WHERE 과목코드 = v_과목코드;
+    DBMS_OUTPUT.PUT_LINE('평균: ' || v_avg || ', 최고: ' || v_max || ', 최저: ' || v_min);
+END;
+/
+
+13. 학년을 입력받아 해당 학년 학생들의 전공별 평균 성적을 출력하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetDeptAvgByYear(v_학년 IN 학생.학년%TYPE)
+IS
+    CURSOR a_cursor IS
+        SELECT h.전공, AVG(s.성적) as 평점
+        FROM 학생 h JOIN 수강 s ON h.학번 = s.학번
+        WHERE h.학년 = v_학년 GROUP BY h.전공;
+BEGIN
+    FOR r IN a_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('전공: ' || r.전공 || ', 평균: ' || r.평점);
+    END LOOP;
+END;
+/
+
+[예외 처리 및 응용]
+14. 수강 신청 시 동일 학번과 과목코드로 이미 수강 내역이 존재하면 '이미 수강 중입니다'
+메시지를 출력하고 삽입을 중단하는 프로시저를 작성하시오. 
+
+CREATE OR REPLACE PROCEDURE EnrollClass(v_학번 IN 수강.학번%TYPE, v_코드 IN 수강.과목코드%TYPE)
+IS
+    v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM 수강 WHERE 학번 = v_학번 AND 과목코드 = v_코드;
+    IF v_cnt > 0 THEN
+        DBMS_OUTPUT.PUT_LINE('이미 수강 중입니다.');
+    ELSE
+        INSERT INTO 수강(과목코드, 학번) VALUES (v_코드, v_학번);
+        COMMIT;
+    END IF;
+END;
+/
+
+15. 특정 수강 학기를 입력받아 성적이 NULL인 학생의 학번, 이름, 과목 이름을 출력하고 성적 미입력 건수를 OUT 매개변수로 반환하는 프로시저를 작성하시오.
+
+CREATE OR REPLACE PROCEDURE GetNoGradeStudents(v_학기 IN 수강.수강학기%TYPE, v_count OUT NUMBER)
+IS
+    CURSOR n_cursor IS
+        SELECT h.학번, h.이름, k.과목이름
+        FROM 수강 s JOIN 학생 h ON s.학번 = h.학번 JOIN 과목 k ON s.과목코드 = k.과목코드
+        WHERE s.수강학기 = v_학기 AND s.성적 IS NULL;
+BEGIN
+    v_count := 0;
+    FOR r IN n_cursor LOOP
+        DBMS_OUTPUT.PUT_LINE('미입력: ' || r.이름 || '(' || r.과목이름 || ')');
+        v_count := v_count + 1;
+    END LOOP;
+END;
+/
+
+***트리거 작성 실습 예제***
+
+학생수강 테이블
+학생(__학번__, 이름, 전공, 학년)
+수강(__과목코드__, __학번__, 수강학기, 성적)
+과목(__과목코드__, 과목이름, 강의실, 요일, 담당교수)
+
+1.[AFTER INSERT]
+수강 테이블에 새 수강 신청이 INSERT될 때, 수강 학번이 학생 테이블에 존재하지 않으면
+삽입을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckStudentExists
+AFTER INSERT ON 수강
+FOR EACH ROW
+DECLARE
+    v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM 학생 WHERE 학번 = :NEW.학번;
+    IF v_cnt = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, '학생 테이블에 존재하지 않는 학번입니다.');
+    END IF;
+END;
+/
+
+2.[BEFORE INSERT]
+수강 테이블에 INSERT될 때, 동일한 학번과 과목코드 조합이 이미 존재하면 중복 수강 신청을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_NoDuplicateEnroll
+BEFORE INSERT ON 수강
+FOR EACH ROW
+DECLARE
+    v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt 
+    FROM 수강 
+    WHERE 학번 = :NEW.학번 AND 과목코드 = :NEW.과목코드;
+    
+    IF v_cnt > 0 THEN
+        RAISE_APPLICATION_ERROR(-20002, '해당 과목은 이미 수강 신청되어 있습니다.');
+    END IF;
+END;
+/
+
+3 [AFTER INSERT]
+수강 테이블에 새 행이 INSERT될 때, 삽입된 학번·과목코드·수강학기를 수강신청이력(학번, 과목코드, 수강학기, 신청일시) 테이블에 자동으로 기록하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogEnrollment
+AFTER INSERT ON 수강
+FOR EACH ROW
+BEGIN
+    INSERT INTO 수강신청이력(학번, 과목코드, 수강학기, 신청일시)
+    VALUES (:NEW.학번, :NEW.과목코드, :NEW.수강학기, SYSDATE);
+END;
+/
+
+4.[BEFORE INSERT]
+학생 테이블에 새 학생이 INSERT될 때, 학년이 1~4 범위를 벗어나면 삽입을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckYearRange
+BEFORE INSERT ON 학생
+FOR EACH ROW
+BEGIN
+    IF :NEW.학년 NOT BETWEEN 1 AND 4 THEN
+        RAISE_APPLICATION_ERROR(-20003, '학년은 1에서 4 사이여야 합니다.');
+    END IF;
+END;
+/
+
+5.[AFTER UPDATE]
+수강 테이블에서 성적이 UPDATE될 때, 변경 전 성적·변경 후 성적·변경 일시를 성적변경이력(학번, 과목코드, 이전성적, 변경성적, 변경일시) 테이블에 기록하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogGradeChange
+AFTER UPDATE OF 성적 ON 수강
+FOR EACH ROW
+BEGIN
+    INSERT INTO 성적변경이력(학번, 과목코드, 이전성적, 변경성적, 변경일시)
+    VALUES (:OLD.학번, :OLD.과목코드, :OLD.성적, :NEW.성적, SYSDATE);
+END;
+/
+
+6.[BEFORE UPDATE]
+수강 테이블에서 성적이 UPDATE될 때, 새 성적이 0 미만이거나 100 초과이면 변경을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_ValidateGradeUpdate
+BEFORE UPDATE OF 성적 ON 수강
+FOR EACH ROW
+BEGIN
+    IF :NEW.성적 < 0 OR :NEW.성적 > 100 THEN
+        RAISE_APPLICATION_ERROR(-20004, '성적은 0점에서 100점 사이로 입력해야 합니다.');
+    END IF;
+END;
+/
+
+7.[AFTER UPDATE]
+학생 테이블에서 전공이 UPDATE될 때, 이전 전공과 새 전공, 변경 일시를 전공변경이력(학번, 이름, 이전전공, 변경전공, 변경일시) 테이블에 기록하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogMajorChange
+AFTER UPDATE OF 전공 ON 학생
+FOR EACH ROW
+BEGIN
+    INSERT INTO 전공변경이력(학번, 이름, 이전전공, 변경전공, 변경일시)
+    VALUES (:OLD.학번, :OLD.이름, :OLD.전공, :NEW.전공, SYSDATE);
+END;
+/
+
+8.[AFTER UPDATE]
+수강 테이블에서 성적이 UPDATE될 때, 변경된 성적이 60점 미만이면 "미이수 경고: 학번=XXX, 과목코드=XXX" 형식으로 DBMS_OUTPUT에 출력하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_WarningFGrade
+AFTER UPDATE OF 성적 ON 수강
+FOR EACH ROW
+BEGIN
+    IF :NEW.성적 < 60 THEN
+        DBMS_OUTPUT.PUT_LINE('미이수 경고: 학번=' || :NEW.학번 || ', 과목코드=' || :NEW.과목코드);
+    END IF;
+END;
+/
+
+9.[BEFORE DELETE]
+학생 테이블에서 학생이 DELETE될 때, 해당 학번을 가진 수강 테이블의 모든 행을 먼저 삭제하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CascadeDeleteByStudent
+BEFORE DELETE ON 학생
+FOR EACH ROW
+BEGIN
+    DELETE FROM 수강 WHERE 학번 = :OLD.학번;
+END;
+/
+
+10.[BEFORE DELETE]
+과목 테이블에서 과목이 DELETE될 때, 삭제되는 과목의 정보(과목코드, 과목이름, 담당교수, 삭제일시)를 삭제과목이력 테이블에 백업한 뒤, 해당 과목코드를 참조하는 수강 행도 함께 삭제하는 트리거를 작성하시오.
+
+CREATE OR REPLACE TRIGGER trg_BackupSubjectDelete
+BEFORE DELETE ON 과목
+FOR EACH ROW
+BEGIN
+    INSERT INTO 삭제과목이력(과목코드, 과목이름, 담당교수, 삭제일시)
+    VALUES (:OLD.과목코드, :OLD.과목이름, :OLD.담당교수, SYSDATE);
+    DELETE FROM 수강 WHERE 과목코드 = :OLD.과목코드;
+END;
+/
+
+마당서점 DB기준 트리거
+
+테이블 스키마
+Book(bookid, bookname, publisher, price)
+Customer(custid, name, address, phone)
+Orders(orderid, custid, bookid, saleprice, orderdate)
+
+1.[EFORE INSERT]
+Orders 테이블에 새 주문이 INSERT될 때, custid가 Customer 테이블에 존재하지 않으면
+삽입을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckCustExists
+BEFORE INSERT ON Orders FOR EACH ROW
+DECLARE v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM Customer WHERE custid = :NEW.custid;
+    IF v_cnt = 0 THEN RAISE_APPLICATION_ERROR(-20001, '존재하지 않는 고객입니다.'); END IF;
+END;
+/
+
+2.[BEFORE INSERT]
+Orders 테이블에 INSERT될 때, bookid가 Book 테이블에 존재하지 않으면 삽입을 차단하는
+트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckBookExists
+BEFORE INSERT ON Orders FOR EACH ROW
+DECLARE v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM Book WHERE bookid = :NEW.bookid;
+    IF v_cnt = 0 THEN RAISE_APPLICATION_ERROR(-20002, '존재하지 않는 도서입니다.'); END IF;
+END;
+/
+
+3.[BEFORE INSERT]
+Orders 테이블에 INSERT될 때, saleprice가 0보다 작으면 삽입을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckSalePrice
+BEFORE INSERT ON Orders FOR EACH ROW
+BEGIN
+    IF :NEW.saleprice < 0 THEN RAISE_APPLICATION_ERROR(-20003, '가격은 0보다 커야 합니다.'); END IF;
+END;
+/
+
+4.[AFTER INSERT]
+Orders 테이블에 새 주문이 INSERT될 때, orderid·custid·bookid·saleprice·orderdate를
+주문이력(orderid, custid, bookid, saleprice, orderdate, 기록일시) 테이블에 자동으로 백업하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogOrders
+AFTER INSERT ON Orders FOR EACH ROW
+BEGIN
+    INSERT INTO 주문이력(orderid, custid, bookid, saleprice, orderdate, 기록일시)
+    VALUES (:NEW.orderid, :NEW.custid, :NEW.bookid, :NEW.saleprice, :NEW.orderdate, SYSDATE);
+END;
+/
+
+5.[BEFORE UPDATE]
+Book 테이블에서 price가 UPDATE될 때, 새 가격이 기존 가격보다 50% 이상 높으면 변경을
+차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LimitPriceIncrease
+BEFORE UPDATE OF price ON Book FOR EACH ROW
+BEGIN
+    IF :NEW.price > :OLD.price * 1.5 THEN RAISE_APPLICATION_ERROR(-20005, '가격은 50% 이상 인상할 수 없습니다.'); END IF;
+END;
+/
+
+6.[AFTER UPDATE]
+Orders 테이블에서 saleprice가 UPDATE될 때, 변경 전후 금액과 차액을
+saleprice_log(orderid, before_price, after_price, diff, chg_date) 테이블에 기록하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogSalePriceChange
+AFTER UPDATE OF saleprice ON Orders FOR EACH ROW
+BEGIN
+    INSERT INTO saleprice_log(orderid, before_price, after_price, diff, chg_date)
+    VALUES (:OLD.orderid, :OLD.saleprice, :NEW.saleprice, (:NEW.saleprice - :OLD.saleprice), SYSDATE);
+END;
+/
+
+7.[AFTER UPDATE]
+Customer 테이블에서 phone이 UPDATE될 때, 변경 전후 번호와 변경 일시를
+phone_change_log(custid, name, old_phone, new_phone, chg_date) 테이블에 기록하는
+트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogPhoneChange
+AFTER UPDATE OF phone ON Customer FOR EACH ROW
+BEGIN
+    INSERT INTO phone_change_log(custid, name, old_phone, new_phone, chg_date)
+    VALUES (:OLD.custid, :OLD.name, :OLD.phone, :NEW.phone, SYSDATE);
+END;
+/
+
+8.[BEFORE DELETE]
+Customer 테이블에서 고객이 DELETE될 때, 해당 custid를 참조하는 Orders 행을 모두 먼저 삭제하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_DeleteOrdersByCust
+BEFORE DELETE ON Customer FOR EACH ROW
+BEGIN
+    DELETE FROM Orders WHERE custid = :OLD.custid;
+END;
+/
+
+9.[BEFORE DELETE]
+Book 테이블에서 책이 DELETE될 때, 삭제되는 책 정보(bookid, bookname, publisher,
+price, 삭제일시)를 deleted_book_log 테이블에 백업한 후 해당 bookid를 참조하는 Orders
+행도 함께 삭제하는 트리거를 작성하시오.
+
+CREATE OR REPLACE TRIGGER trg_BackupAndDeleteBook
+BEFORE DELETE ON Book FOR EACH ROW
+BEGIN
+    INSERT INTO deleted_book_log(bookid, bookname, publisher, price, 삭제일시)
+    VALUES (:OLD.bookid, :OLD.bookname, :OLD.publisher, :OLD.price, SYSDATE);
+    DELETE FROM Orders WHERE bookid = :OLD.bookid;
+END;
+/
+
+10.[BEFORE INSERT]
+Orders 테이블에 INSERT될 때, 동일한 custid와 bookid 조합이 같은 orderdate에 이미 존재하면 중복 주문을 차단하는 트리거를 작성하시오.
+
+CREATE OR REPLACE TRIGGER trg_NoDuplicateOrder
+BEFORE INSERT ON Orders FOR EACH ROW
+DECLARE v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM Orders 
+    WHERE custid = :NEW.custid AND bookid = :NEW.bookid AND orderdate = :NEW.orderdate;
+    IF v_cnt > 0 THEN RAISE_APPLICATION_ERROR(-20010, '같은 날짜에 동일한 도서 주문이 이미 존재합니다.'); END IF;
+END;
+/
+
+극장 DB DB기준 트리거
+테이블 스키마
+극장(극장번호, 극장이름, 위치)
+상영관(극장번호, 상영관번호, 영화제목, 가격, 좌석수)
+예약(극장번호, 상영관번호, 고객번호, 좌석번호, 날짜)
+고객(고객번호, 이름, 주소)
+
+1.[BEFORE INSERT]
+예약 테이블에 새 예약이 INSERT될 때, 고객번호가 고객 테이블에 존재하지 않으면 삽입을
+차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckTheaterCust
+BEFORE INSERT ON 예약 FOR EACH ROW
+DECLARE v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM 고객 WHERE 고객번호 = :NEW.고객번호;
+    IF v_cnt = 0 THEN RAISE_APPLICATION_ERROR(-30001, '등록되지 않은 고객입니다.'); END IF;
+END;
+/
+
+2.[BEFORE INSERT]
+예약 테이블에 INSERT될 때, 동일한 극장번호·상영관번호·날짜·좌석번호 조합이 이미 존재하면 중복 예약을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_NoDuplicateSeat
+BEFORE INSERT ON 예약 FOR EACH ROW
+DECLARE v_cnt NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cnt FROM 예약 
+    WHERE 극장번호 = :NEW.극장번호 AND 상영관번호 = :NEW.상영관번호 AND 날짜 = :NEW.날짜 AND 좌석번호 = :NEW.좌석번호;
+    IF v_cnt > 0 THEN RAISE_APPLICATION_ERROR(-30002, '해당 좌석은 이미 예약되었습니다.'); END IF;
+END;
+/
+
+3.[BEFORE INSERT]
+예약 테이블에 INSERT될 때, 해당 상영관의 좌석수보다 현재 예약 수가 같거나 많으면 예약을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckTheaterCapacity
+BEFORE INSERT ON 예약 FOR EACH ROW
+DECLARE v_limit NUMBER; v_current NUMBER;
+BEGIN
+    SELECT 좌석수 INTO v_limit FROM 상영관 WHERE 극장번호 = :NEW.극장번호 AND 상영관번호 = :NEW.상영관번호;
+    SELECT COUNT(*) INTO v_current FROM 예약 WHERE 극장번호 = :NEW.극장번호 AND 상영관번호 = :NEW.상영관번호 AND 날짜 = :NEW.날짜;
+    IF v_current >= v_limit THEN RAISE_APPLICATION_ERROR(-30003, '해당 상영관의 좌석이 매진되었습니다.'); END IF;
+END;
+/
+
+4.[AFTER INSERT]
+예약 테이블에 새 예약이 INSERT될 때, 예약된 정보(극장번호, 상영관번호, 고객번호, 좌석번호, 날짜, 기록일시)를 예약이력 테이블에 자동으로 기록하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogReservation
+AFTER INSERT ON 예약 FOR EACH ROW
+BEGIN
+    INSERT INTO 예약이력(극장번호, 상영관번호, 고객번호, 좌석번호, 날짜, 기록일시)
+    VALUES (:NEW.극장번호, :NEW.상영관번호, :NEW.고객번호, :NEW.좌석번호, :NEW.날짜, SYSDATE);
+END;
+/
+
+5.[BEFORE UPDATE]
+상영관 테이블에서 가격이 UPDATE될 때, 새 가격이 0 이하이면 변경을 차단하는 트리거를
+작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckPriceUpdate
+BEFORE UPDATE OF 가격 ON 상영관 FOR EACH ROW
+BEGIN
+    IF :NEW.가격 <= 0 THEN RAISE_APPLICATION_ERROR(-30005, '가격은 0보다 커야 합니다.'); END IF;
+END;
+/
+
+6.[AFTER UPDATE]
+상영관 테이블에서 가격이 UPDATE될 때, 변경 전후 가격과 변경 일시를 가격변경이력(극장번호, 상영관번호, 영화제목, 이전가격, 변경가격, 변경일시) 테이블에 기록하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_LogPriceChange
+AFTER UPDATE OF 가격 ON 상영관 FOR EACH ROW
+BEGIN
+    INSERT INTO 가격변경이력(극장번호, 상영관번호, 영화제목, 이전가격, 변경가격, 변경일시)
+    VALUES (:OLD.극장번호, :OLD.상영관번호, :OLD.영화제목, :OLD.가격, :NEW.가격, SYSDATE);
+END;
+/
+
+7.[BEFORE UPDATE]
+상영관 테이블에서 좌석수가 UPDATE될 때, 변경하려는 좌석수가 현재 해당 상영관의 예약
+수보다 작으면 변경을 차단하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_CheckSeatUpdate
+BEFORE UPDATE OF 좌석수 ON 상영관 FOR EACH ROW
+DECLARE v_reserved NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_reserved FROM 예약 WHERE 극장번호 = :OLD.극장번호 AND 상영관번호 = :OLD.상영관번호;
+    IF :NEW.좌석수 < v_reserved THEN RAISE_APPLICATION_ERROR(-30007, '현재 예약자 수보다 적게 좌석수를 수정할 수 없습니다.'); END IF;
+END;
+/
+
+8.[BEFORE DELETE]
+고객 테이블에서 고객이 DELETE될 때, 해당 고객번호를 참조하는 예약 행을 모두 먼저 삭제하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_DeleteReserveByCust
+BEFORE DELETE ON 고객 FOR EACH ROW
+BEGIN
+    DELETE FROM 예약 WHERE 고객번호 = :OLD.고객번호;
+END;
+/
+
+9.[BEFORE DELETE]
+상영관 테이블에서 행이 DELETE될 때, 삭제되는 상영관 정보(극장번호, 상영관번호, 영화제목, 가격, 삭제일시)를 삭제상영관이력 테이블에 백업하고, 해당 상영관의 예약 행도 모두 삭제하는 트리거를 작성하시오. 
+
+CREATE OR REPLACE TRIGGER trg_BackupAndDeleteScreen
+BEFORE DELETE ON 상영관 FOR EACH ROW
+BEGIN
+    INSERT INTO 삭제상영관이력(극장번호, 상영관번호, 영화제목, 가격, 삭제일시)
+    VALUES (:OLD.극장번호, :OLD.상영관번호, :OLD.영화제목, :OLD.가격, SYSDATE);
+    DELETE FROM 예약 WHERE 극장번호 = :OLD.극장번호 AND 상영관번호 = :OLD.상영관번호;
+END;
+/
+
+10.[BEFORE DELETE]
+극장 테이블에서 극장이 DELETE될 때, 해당 극장번호를 참조하는 예약 행과 상영관 행을 모두 삭제하는 트리거를 작성하시오.
+
+CREATE OR REPLACE TRIGGER trg_DeleteTheaterAll
+BEFORE DELETE ON 극장 FOR EACH ROW
+BEGIN
+    DELETE FROM 예약 WHERE 극장번호 = :OLD.극장번호;
+    DELETE FROM 상영관 WHERE 극장번호 = :OLD.극장번호;
+END;
+/
